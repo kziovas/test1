@@ -1,0 +1,168 @@
+import matplotlib.pyplot as plt
+import tensorflow as tf
+import numpy as np
+import pandas as pd
+
+data = pd.read_csv('train_data.csv')
+
+datanp = data.values
+
+# Python optimisation variables
+n_classes = 10
+batch_size = 25
+learnrate=0.00025
+num_epochs = 400
+n_data=127
+reg_weight=0.001 #this defines how important the regularization loss is. Max vaue 1
+
+
+
+#datanp[0][2] row col
+rows = datanp.shape[0]-1
+#cols = datanp.shape[1]-1
+
+X = datanp[:,0:n_data].astype(np.float64)
+y_labels = datanp[:,256].astype(int)
+
+
+#Well conditioned data will have zero mean and equal variance
+#We get this automattically when we calculate the Z Scores for the data
+x_train=X
+for expr in range(0,rows+1):
+    max_v= np.amax(X[expr])
+    x_train[expr]=X[expr]/max_v
+    #print(max_v)
+
+#print(rows)
+#print(y_train)
+
+
+
+
+#Here i take the lable rom the csv and make a target matrix with size=n_classes.
+#In this example we have 10 classes(sphere sizes)
+y_train=np.zeros((rows,n_classes ),dtype=np.float64)
+for i in range(rows):
+    y_train[i][y_labels[i]]=1
+    '''
+    if y_labels[i] >0 and y_labels[i]<9:
+        y_train[i][y_labels[i]]=0.95
+        y_train[i][(y_labels[i]-1)]=0.025
+        y_train[i][(y_labels[i]+1)]=0.025
+    if y_labels[i]==0:
+        y_train[i][y_labels[i]]=0.95
+        y_train[i][(y_labels[i]+1)]=0.05
+    if y_labels[i]==9:
+        y_train[i][y_labels[i]]=0.95
+        y_train[i][(y_labels[i]-1)]=0.05
+    '''
+    if(i%10==0):
+        print(y_train[i])
+    
+
+
+
+#convert y_train and x_train to tensor objects
+#x_train=tf.convert_to_tensor(x_train)
+#y_train=tf.convert_to_tensor(y_train)
+
+
+
+# Build a graph.
+g1=tf.Graph()
+with g1.as_default():
+    
+    
+  
+    
+    # Create Tensorflow variables
+    xin = tf.placeholder(tf.float64,shape=(batch_size, n_data), name='xin')
+    y_target=tf.placeholder(tf.float64,shape=(batch_size, 10), name='y_target')
+
+    w_in= tf.get_variable("w_in",shape=[n_data, 64],dtype=tf.float64, initializer=tf.initializers.he_normal())
+    w_hid1= tf.get_variable("w_hid1",shape=[64, 64],dtype=tf.float64, initializer=tf.initializers.he_normal())
+    w_out= tf.get_variable("w_out",shape=[64, 10],dtype=tf.float64, initializer=tf.initializers.he_normal())
+
+    #hid1=xin@w_in
+    hid1 = tf.linalg.matmul(xin, w_in) #tf.add(tf.matmul(xin, w_in),bin) if i want to use biases as well
+    hid1_out = tf.nn.elu(hid1)
+    
+    hid2 = tf.matmul(hid1_out, w_hid1) #tf.add(tf.matmul(xin, w_in),bin) if i want to use biases as well
+    hid2_out = tf.nn.elu(hid2)
+    
+    yout=tf.matmul(hid2_out, w_out)
+    
+    #print(yout)
+    
+    
+
+    # Launch the graph in a session.
+    sess = tf.Session()
+    
+        
+    # now calculate the hidden layer output - in this case, We use a softmax activated output layer
+    #We also calculate the cross_entropy as loss function
+    loss= tf.nn.softmax_cross_entropy_with_logits_v2(labels=y_target,logits=yout)
+    
+    #this is the L1 norm of the weights
+    l1_reg=tf.norm(w_in,ord=1)+tf.norm(w_hid1,ord=1)+tf.norm(w_out,ord=1) 
+    
+    #This is the final total_loss
+    total_loss=((1-reg_weight)*loss)+(reg_weight*l1_reg)
+    
+    
+    #This is another way to do L1 regulirazation
+    #l1_regularizer = tf.contrib.layers.l1_regularizer(scale=0.001, scope=None)
+    #weights = tf.trainable_variables() # all vars of our graph
+    #l1_reg=tf.contrib.layers.apply_regularization(l1_regularizer,weights)
+    #total_loss=loss+l1_reg
+    
+    loss_batch = tf.reduce_mean(total_loss)
+    loss_hist=[]
+      
+    # add an optimiser
+    optimiser = tf.train.AdamOptimizer(learning_rate=learnrate).minimize(loss_batch)
+    
+    
+    
+    # Run the init operation.
+    sess.run(tf.global_variables_initializer())
+    
+    
+       
+    for epoch in range(num_epochs):
+        epoch_loss = 0
+        batch_iter=int(rows/batch_size)
+        
+        for i in range(batch_iter):
+            #pick a random 20 data points
+            rand_index = np.random.choice(rows, size=batch_size).astype(int)
+            x_batch = [x_train[rand_index]]
+            y_batch = [y_train[rand_index]]
+            x_batch= np.reshape(x_batch,(batch_size,n_data))
+            y_batch= np.reshape(y_batch,(batch_size,n_classes))
+            sess.run(optimiser, feed_dict={xin: x_batch, y_target: y_batch})
+            #Print the result after 5 intervals
+            if(i+1) % 5 == 0:
+               # print('Step #', str(i+1), 'W = ', str(sess.run(w_in)))
+                #temp_loss = sess.run(loss, feed_dict={X_data: x_batch, Y_target:y_batch})
+                loss_hist.append(sess.run(loss_batch, feed_dict={xin: x_batch, y_target: y_batch}))
+                print('Loss = ', sess.run(loss_batch, feed_dict={xin: x_batch, y_target: y_batch}))
+            
+           # epoch_loss += c
+
+       # print('Epoch', epoch, 'completed out of',num_epochs,'loss:',epoch_loss)
+
+   # correct = tf.equal(tf.argmax(yout, 1), tf.argmax(y_target, 1))
+
+   # accuracy = tf.reduce_mean(tf.cast(correct, 'float'))
+   # print('Accuracy:',accuracy.eval({x:mnist.test.images, y:mnist.test.labels}))
+    plt.plot(range(0,len(loss_hist)),loss_hist)
+   # weights=sess.run(w_in, feed_dict={xin: x_batch, y_target: y_batch})
+   #plt.imshow(weights)
+    sess.close()
+    
+
+
+
+
